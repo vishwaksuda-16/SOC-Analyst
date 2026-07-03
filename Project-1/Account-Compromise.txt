@@ -1,0 +1,368 @@
+# Investigation 1: Unauthorized Account Creation & Persistence
+
+## Executive Summary
+
+**Case ID:** SOC-2024-001  
+**Date:** June 15, 2024  
+**Investigator:** Vishwak Sudarsanan  
+**Severity:** CRITICAL  
+**Status:** Confirmed - Data Exfiltration in Progress
+
+An attacker compromised employee account `jsmith`, escalated privileges, created a backdoor administrative account, and exfiltrated sensitive company data across multiple external IP addresses. Investigation reveals coordinated multi-stage attack with persistence mechanism.
+
+---
+
+## Investigation Timeline
+
+| Time | Event | Evidence | Analysis |
+|------|-------|----------|----------|
+| **02:47 AM** | RDP login to SALES-LAPTOP-04 | Event ID 4624, LogonType 10, IP 203.0.113.45 | Attacker gains initial access using jsmith credentials from external IP |
+| **02:48 AM** | PowerShell process launched | Event ID 4688, ParentProcess: explorer.exe | Privilege escalation attempt begins |
+| **02:49 AM** | net.exe executed | Event ID 4688, ParentProcess: powershell.exe | Attacker uses account/network management tools |
+| **02:52 AM** | New admin account created | Event ID 4720, AccountName: backup_admin | Persistence mechanism installed - backdoor account |
+| **02:55 AM** | backup_admin login successful | Event ID 4624, LogonType 10, IP 203.0.113.45 | Attacker tests backdoor account from same IP |
+| **03:15 AM** | cmd.exe launched | Event ID 4688, User: backup_admin, ParentProcess: explorer.exe | Attacker executes commands with admin privileges |
+| **03:30 AM** (Firewall) | 250 MB transferred to 93.184.216.34 | Firewall log, Port 443 HTTPS | Data exfiltration begins |
+| **03:45 AM** (Firewall) | 180 MB transferred to 198.51.100.88 | Firewall log, Port 443 HTTPS | Secondary exfiltration channel |
+| **04:00 AM** (Firewall) | 120 MB transferred to 45.33.32.156 | Firewall log, Port 443 HTTPS | Tertiary exfiltration channel |
+
+---
+
+## Attack Chain Analysis
+
+### Stage 1: Initial Access (02:47 AM)
+```
+Attacker obtains jsmith credentials (method unknown - likely phishing/password spray)
+↓
+RDP login from external IP 203.0.113.45
+↓
+Access to SALES-LAPTOP-04 with user privileges
+```
+
+**Key Indicators:**
+- Login time: 2:47 AM (outside normal business hours)
+- jsmith baseline: Works 9 AM - 5 PM EST only
+- Source IP: External (203.0.113.45, not company network)
+- LogonType 10: Remote Desktop Protocol (not local login)
+
+**Confidence:** HIGH
+
+---
+
+### Stage 2: Privilege Escalation (02:48-02:49 AM)
+```
+PowerShell launched by explorer.exe
+↓
+net.exe executed by PowerShell
+↓
+Attacker gains system-level access
+```
+
+**Key Indicators:**
+- ParentProcess anomaly: explorer.exe should not launch PowerShell
+- net.exe is Windows account/network management tool
+- Suspicious process chain: explorer → powershell → net.exe
+
+**Confidence:** HIGH
+
+---
+
+### Stage 3: Persistence (02:52 AM)
+```
+New administrative account "backup_admin" created
+↓
+Account immediately tested with login
+↓
+Attacker ensures sustained access
+```
+
+**Key Indicators:**
+- New account created by SYSTEM (account creation event)
+- backup_admin name suggests intentional backdoor
+- Immediate login test (02:55 AM) from same attacker IP
+- Persistence mechanism in place even if jsmith password is reset
+
+**Confidence:** CRITICAL
+
+---
+
+### Stage 4: Data Exfiltration (03:15 AM onwards)
+```
+Large files transferred to attacker-controlled servers
+↓
+Multiple external IPs used (load balancing/redundancy)
+↓
+Estimated 550 MB of company data stolen
+```
+
+**Key Indicators:**
+- 250 MB + 180 MB + 120 MB = 550 MB total (abnormal volume)
+- Multiple external IPs (coordinated infrastructure)
+- HTTPS port 443 (encrypted, hides data contents)
+- Timing: Immediately after backdoor account created
+
+**Confidence:** CRITICAL
+
+---
+
+## Evidence Collection
+
+### Windows Event Logs Analyzed
+- **Total Events Reviewed:** 10
+- **Critical Events:** 8
+- **Source:** SALES-LAPTOP-04 security event log
+
+### Indicators of Compromise (IOCs)
+
+#### IP Addresses
+| IP | Type | First Seen | Activity | Risk |
+|---|---|---|---|---|
+| 203.0.113.45 | External | 02:47 AM | RDP login, backup_admin login, data exfil | CRITICAL |
+| 93.184.216.34 | External | 03:30 AM | Received 250 MB data | CRITICAL |
+| 198.51.100.88 | External | 03:45 AM | Received 180 MB data | CRITICAL |
+| 45.33.32.156 | External | 04:00 AM | Received 120 MB data | CRITICAL |
+
+#### Usernames
+| Username | Created | Status | Risk |
+|---|---|---|---|
+| jsmith | Pre-existing (compromised) | Locked after failed login | HIGH |
+| backup_admin | 02:52 AM | Active backdoor account | CRITICAL |
+
+#### Process Artifacts
+| Process | ParentProcess | Command | Risk |
+|---|---|---|---|
+| powershell.exe | explorer.exe | (privilege escalation) | HIGH |
+| net.exe | powershell.exe | (account creation) | CRITICAL |
+| cmd.exe | backup_admin | (command execution) | CRITICAL |
+
+#### Log Sources
+- Windows Security Event Log (Event IDs: 4624, 4688, 4720)
+- Firewall logs (outbound HTTPS connections)
+- Network flow data (data volume and direction)
+
+---
+
+## Risk Assessment
+
+### Attack Classification
+- **Type:** Business Email Compromise (BEC) / Credential Compromise
+- **Category:** Lateral Movement + Persistence + Data Exfiltration
+- **Framework:** MITRE ATT&CK
+  - T1078.002: Valid Accounts (compromised jsmith account)
+  - T1136.001: Create Account (backup_admin creation)
+  - T1021.006: Remote Service Session Initiation (RDP)
+  - T1020: Data Exfiltration (HTTPS to external servers)
+
+### Severity Determination
+
+| Factor | Assessment | Impact |
+|---|---|---|
+| **Credentials Compromised** | YES | Can be reset, but already used |
+| **Persistence Installed** | YES | backup_admin account remains active |
+| **Data Exfiltration** | YES | 550 MB stolen (need to determine what data) |
+| **Lateral Movement** | ATTEMPTED | SMB block prevented spread to other systems |
+| **Business Impact** | UNKNOWN | Depends on data stolen - likely HIGH |
+| **Time to Detect** | 12+ hours | Incident detected after exfil completed |
+| **Attacker Access Level** | ADMIN | backup_admin has full system privileges |
+
+### Risk Score: **CRITICAL (9.5/10)**
+
+**Justification:**
+- Confirmed data breach (550 MB exfiltrated)
+- Persistent access mechanism installed (backup_admin)
+- Admin-level compromise
+- Multiple external command & control channels
+- Attack executed in coordinated, rapid manner (28 minutes)
+
+---
+
+## Immediate Response Actions
+
+### Actions Taken/Recommended
+
+#### URGENT (Within Minutes)
+1. **Isolate SALES-LAPTOP-04 from network**
+   - Disconnect from LAN (network cable or WiFi disable)
+   - Prevent further data transfer
+   - Status: RECOMMENDED (escalate to IT)
+
+2. **Disable compromised accounts**
+   - jsmith: Force password reset, force logout from all sessions
+   - backup_admin: Disable immediately
+   - Status: RECOMMENDED (escalate to Identity & Access Management)
+
+3. **Block attacker IPs at perimeter firewall**
+   - 203.0.113.45
+   - 93.184.216.34
+   - 198.51.100.88
+   - 45.33.32.156
+   - Status: RECOMMENDED (escalate to Network Security)
+
+#### SHORT-TERM (Within 1-2 Hours)
+4. **Preserve evidence**
+   - Memory dump from SALES-LAPTOP-04
+   - Disk image of C: drive
+   - Event log export
+   - Status: RECOMMENDED (escalate to Incident Response / DFIR)
+
+5. **Determine data exfiltration scope**
+   - Identify which files were accessed
+   - Assess data classification (PII, financial, confidential)
+   - Status: RECOMMENDED (escalate to Data Governance)
+
+6. **Hunt for similar activity**
+   - Search for other accounts with unusual RDP logins at 2+ AM
+   - Search for other backup_admin-like accounts
+   - Search for other external data transfers
+   - Status: RECOMMENDED (SOC investigation)
+
+#### FOLLOW-UP (Within 24 Hours)
+7. **Credential reset sweep**
+   - Reset passwords for all users with access to exfiltrated data
+   - Force multi-factor authentication enablement
+   - Status: RECOMMENDED (escalate to Identity & Access Management)
+
+8. **Notify affected parties**
+   - CEO (impersonation risk)
+   - Finance (financial data potentially exposed)
+   - Legal (data breach notification requirements)
+   - Status: RECOMMENDED (escalate to Leadership)
+
+9. **Threat intelligence investigation**
+   - Research attacker IPs for known C2 infrastructure
+   - Check dark web for leaked company data
+   - Status: RECOMMENDED (escalate to Threat Intelligence)
+
+---
+
+## Escalation Path
+
+```
+SOC Analyst (This Investigation)
+    ↓
+Tier 2 Analyst / Incident Commander
+    ↓
+Incident Response Team
+    ↓
+CISO / Executive Leadership
+    ↓
+Legal / Compliance (if data breach confirmed)
+```
+
+---
+
+## Investigation Methodology
+
+### Tools Used
+- **SIEM:** Splunk Enterprise
+- **Log Analysis:** Splunk Search Queries
+- **Data Source:** Windows Event Logs, Firewall Logs, Network Telemetry
+- **Process Mapping:** Manual timeline correlation
+
+### Search Queries Executed
+
+**Query 1: Find RDP logins**
+```
+EventID=4624 AND LogonType=10 AND IpAddress=203.0.113.45
+```
+Result: 2 events (jsmith and backup_admin logins)
+
+**Query 2: Find process execution after login**
+```
+Computer=SALES-LAPTOP-04 AND User=jsmith AND EventID=4688 AND Timestamp>=02:47AM
+```
+Result: 4 events (explorer, powershell, net.exe, cmd.exe)
+
+**Query 3: Find account creation**
+```
+EventID=4720 AND Timestamp>=02:47AM AND Timestamp<=03:00AM
+```
+Result: 1 event (backup_admin account created)
+
+**Query 4: Find backup_admin activity**
+```
+User=backup_admin AND EventID=4624
+```
+Result: 1 event (successful login at 02:55 AM)
+
+### Evidence Chain
+1. Windows logs confirm event sequence
+2. Firewall logs confirm data volume and external IPs
+3. Process tree shows malicious parent-child relationships
+4. Timing analysis shows coordinated, rapid attack
+5. IOCs extracted and documented
+
+---
+
+## Lessons Learned
+
+### What Worked
+- ✅ SIEM correlation across multiple event types
+- ✅ Timeline analysis revealed attack progression
+- ✅ External IP correlation between different log sources
+- ✅ Baseline deviation detection (2 AM login, new account)
+
+### Gaps Identified
+- ⚠️ RDP should have MFA (Multi-Factor Authentication)
+- ⚠️ Privileged account creation not immediately alerted
+- ⚠️ No EDR tool to detect payload download/execution
+- ⚠️ Firewall rule allowed large outbound HTTPS (should be data loss prevention)
+
+### Recommendations for Future Prevention
+1. Implement multi-factor authentication (MFA) for all remote access
+2. Enable privileged account management (PAM) for admin account creation
+3. Deploy EDR (Endpoint Detection & Response) for behavioral analysis
+4. Implement DLP (Data Loss Prevention) for outbound data transfer monitoring
+5. Configure SIEM alerts for account creation outside normal hours
+6. Establish baseline of normal outbound traffic per user/system
+7. Implement alert on multiple failed logins followed by success
+8. Enable real-time blocking of suspicious process chains
+
+---
+
+## Investigation Metrics
+
+| Metric | Value |
+|---|---|
+| **Time to Initial Detection** | Unknown (>12 hours) |
+| **Time to Investigation Completion** | ~2 hours |
+| **Total Events Analyzed** | 10 |
+| **IOCs Extracted** | 6 (4 IPs, 2 usernames) |
+| **Confirmed Compromise** | YES |
+| **Data Confirmed Exfiltrated** | 550 MB (contents unknown) |
+| **Attacker Persistence** | YES (backup_admin account) |
+| **Business Impact** | CRITICAL (data breach) |
+
+---
+
+## Appendix: Additional Investigation Data
+
+### Event Log Screenshots (Placeholder)
+```
+[Insert Splunk screenshots here showing:]
+- Search results for Event ID 4624 (RDP login)
+- Search results for Event ID 4688 (process creation)
+- Timeline visualization of all events
+- Firewall log results showing data transfer
+```
+
+### Reference Documents
+- MITRE ATT&CK Framework: https://attack.mitre.org
+- Windows Event ID Reference: https://docs.microsoft.com/en-us/windows/security/threat-protection/auditing/audit-logon-events
+- NIST Incident Response Guidelines: https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-61r2.pdf
+
+---
+
+## Investigation Conclusion
+
+This investigation confirms a **successful data breach** involving:
+- Credential compromise
+- Privilege escalation
+- Persistence mechanism installation
+- Data exfiltration to attacker-controlled infrastructure
+
+**Recommendation:** Escalate to Incident Response team immediately for containment, eradication, and recovery phases.
+
+**Investigator Signature:** Vishwak Sudarsanan, SOC Analyst  
+**Date:** June 15, 2024  
+**Classification:** CONFIDENTIAL - Internal Use Only

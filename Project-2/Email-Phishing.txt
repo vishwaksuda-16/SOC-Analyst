@@ -1,0 +1,479 @@
+# Investigation 2: Business Email Compromise (BEC) - CEO Impersonation Phishing Campaign
+
+## Executive Summary
+
+**Case ID:** SOC-2024-002  
+**Date:** June 20, 2024  
+**Investigator:** Vishwak Sudarsanan  
+**Severity:** CRITICAL  
+**Status:** Confirmed Phishing - BEC Campaign
+
+A sophisticated Business Email Compromise (BEC) phishing campaign targeted the Finance department, impersonating the CEO to authorize fraudulent wire transfer of $50,000. Email authentication checks failed (SPF, DKIM, DMARC), confirming sender spoofing. 15 employees received the malicious email. No confirmed wire transfers executed.
+
+---
+
+## Incident Timeline
+
+| Time | Event | Evidence | Analysis |
+|------|-------|----------|----------|
+| **2024-06-20 14:32:15 UTC** | Phishing email received | Email received header, 15 recipients | Attacker sends spoofed CEO email to Finance team |
+| **2024-06-20 14:35:00 UTC** | Email flagged as suspicious | User reports to SOC | Finance employee questions authenticity of payment request |
+| **2024-06-20 14:40:00 UTC** | Report escalated to SOC | Incident ticket created | SOC begins header analysis |
+| **2024-06-20 14:50:00 UTC** | Email authentication analyzed | SPF/DKIM/DMARC failures | Confirms email is spoofed, not from actual CEO account |
+| **2024-06-20 15:00:00 UTC** | Attacker domains/IPs identified | Domain/IP IOCs extracted | Malicious infrastructure identified for blocking |
+| **2024-06-20 15:15:00 UTC** | Alert sent to all Finance staff** | Email notification | Prevent any employee from processing fake payment |
+
+---
+
+## Attack Chain Analysis
+
+### Stage 1: Target Selection
+```
+Attacker researches company structure
+↓
+Identifies Finance department as target
+↓
+Obtains CEO name and email format
+↓
+Selects high-value target: $50,000 wire transfer
+```
+
+**Analysis:**
+- BEC attacks target finance/payment authorization
+- Attacker demonstrates company knowledge
+- Urgency tactic: "TODAY", "Do not delay"
+- High monetary value suggests organized threat
+
+**Confidence:** HIGH
+
+---
+
+### Stage 2: Email Spoofing
+```
+Attacker registers lookalike domain: company-secure.tk
+↓
+Sends email claiming to be from ceo@company.com
+↓
+Uses attacker's mail server (mail.attacker.com)
+↓
+Email authentication fails: SPF, DKIM, DMARC
+```
+
+**Analysis:**
+- Return-Path header: no-reply@company-secure.tk (NOT company.com)
+- Sender IP: 203.0.113.45 (not company's mail server)
+- "From" field easily spoofed (not a reliable identifier)
+- Real authentication mechanisms (SPF, DKIM, DMARC) all failed
+
+**Confidence:** CRITICAL
+
+---
+
+### Stage 3: Social Engineering
+```
+Email claims urgency: "TODAY", "Do not delay"
+↓
+Requests unusual action: Wire $50,000 to new account
+↓
+Includes fake banking details to lend legitimacy
+↓
+Threatens business relationship if not complied
+```
+
+**Analysis:**
+- Urgency pressure bypasses normal procedures
+- Unusual wire transfer without prior notice
+- No phone call or in-person verification
+- Account details provided (fake vendor account)
+- Emotional pressure: "I need your immediate assistance"
+
+**Confidence:** HIGH
+
+---
+
+### Stage 4: Payload Delivery (Not Clicked - Lucky)
+```
+Attachment: Invoice_PO-2024-5847.exe (malicious executable)
+↓
+Malicious link: hxxp://company-secure[.]tk/invoice/verify-payment
+↓
+Both designed to download malware/steal credentials
+```
+
+**Analysis:**
+- .exe attachment = code execution risk
+- Fake invoice number (PO-2024-5847) adds legitimacy
+- Link to attacker domain (company-secure.tk) = credential harvesting
+- Attachment mentioned but "not shown" = psychological pressure
+
+**Confidence:** HIGH
+
+---
+
+## Evidence Collection
+
+### Email Headers Analyzed
+
+**From Field (Spoofed):**
+```
+From: ceo@company.com
+```
+- Easily spoofed
+- Claims legitimate sender
+- Not validated by authentication
+
+**Return-Path (Real Sender):**
+```
+Return-Path: <no-reply@company-secure.tk>
+```
+- CRITICAL: Different from claimed sender
+- Uses attacker-controlled domain (company-secure.tk)
+- "company-secure" mimics "company" (typosquatting)
+
+**Received Headers (Email Path):**
+```
+Received: from mail.attacker.com (mail.attacker.com [203.0.113.45])
+  by company-mail.company.com with SMTP
+Received: from suspicious-server.ru (suspicious-server.ru [198.51.100.99])
+  by mail.attacker.com with SMTP
+```
+
+**Path Analysis:**
+1. Email originated: suspicious-server.ru [198.51.100.99]
+2. Relayed through: mail.attacker.com [203.0.113.45]
+3. Arrived at: company-mail.company.com
+
+**Conclusion:** Email originated from attacker infrastructure, NOT company servers
+
+**Authentication Results (All Failed):**
+```
+spf=fail (sender IP [203.0.113.45] does not match SPF policy for company.com)
+dkim=fail (signature verification failed)
+dmarc=fail (DMARC policy requires alignment)
+```
+
+| Auth Type | Result | Meaning |
+|---|---|---|
+| **SPF** | FAIL | Sender IP not authorized to send from company.com |
+| **DKIM** | FAIL | Email digital signature doesn't match company's cryptographic key |
+| **DMARC** | FAIL | SPF+DKIM alignment failed; email policy rejects this message |
+
+**Conclusion:** All three authentication mechanisms confirm email is SPOOFED and NOT from actual CEO account
+
+---
+
+## Indicators of Compromise (IOCs)
+
+### Attacker-Controlled Domains
+| Domain | Type | Purpose | Risk |
+|---|---|---|---|
+| company-secure.tk | Attacker Domain | Lookalike domain (typosquatting) | CRITICAL |
+| mail.attacker.com | Mail Server | Email relay infrastructure | CRITICAL |
+| suspicious-server.ru | Upstream Server | C2 or mail forwarding | CRITICAL |
+
+### Attacker IP Addresses
+| IP | Usage | First Seen | Risk |
+|---|---|---|---|
+| 203.0.113.45 | Mail server (mail.attacker.com) | 2024-06-20 14:32 | CRITICAL |
+| 198.51.100.99 | Upstream server (suspicious-server.ru) | 2024-06-20 14:32 | CRITICAL |
+
+### Malicious URLs
+| URL | Purpose | Risk |
+|---|---|---|
+| hxxp://company-secure[.]tk/invoice/verify-payment | Credential harvesting / Malware delivery | CRITICAL |
+
+### Malicious Attachments
+| Filename | Type | Purpose | Risk |
+|---|---|---|---|
+| Invoice_PO-2024-5847.exe | Windows Executable | Malware delivery (not analyzed) | CRITICAL |
+
+### Attack Pattern Identifiers
+- **Urgency language:** "TODAY", "Do not delay", "immediate assistance"
+- **Typosquatting domain:** company-secure.tk (not company.com)
+- **Lookalike sender:** Impersonates CEO
+- **High-value request:** $50,000 (suggests organized attack)
+- **Unusual banking details:** New vendor account (not in system)
+- **Social engineering:** Emotional pressure + business threat
+
+---
+
+## Risk Assessment
+
+### Attack Classification
+- **Type:** Business Email Compromise (BEC) / CEO Fraud
+- **Category:** Social Engineering + Email Spoofing + Fraud
+- **MITRE ATT&CK Framework:**
+  - T1598.002: Phishing for Information (credential harvesting)
+  - T1566.002: Phishing - Spearphishing Link
+  - T1598.003: Spearphishing Attachment
+  - T1589: Gather Victim Org Information (company research)
+
+### Severity Determination
+
+| Factor | Assessment | Impact |
+|---|---|---|
+| **Spoofing Confirmed** | YES | Email is 100% spoofed (auth failed) |
+| **Malicious Intent** | YES | Requests unauthorized financial transfer |
+| **Financial Loss Potential** | YES | $50,000 requested |
+| **Payloads Deployed** | YES | Malware attachment + credential harvesting link |
+| **User Interaction** | NO (Lucky) | No confirmed clicks/opens yet |
+| **Employees Targeted** | 15 | Finance department (payment authority) |
+| **Attacker Sophistication** | MEDIUM | Typosquatting domain, spoofed auth, social engineering |
+| **Organizational Impact** | CRITICAL | Could result in $50K+ financial loss |
+
+### Risk Score: **CRITICAL (9.0/10)**
+
+**Justification:**
+- Confirmed spoofing and malicious intent
+- Targeted high-value transaction ($50,000)
+- Social engineering tactics effective
+- Malware/credential harvesting payloads included
+- Organized attack (domain registration, mail infrastructure)
+- No user interaction yet, but threat remains active
+
+---
+
+## Immediate Response Actions
+
+### Actions Taken/Recommended
+
+#### URGENT (Within Minutes)
+1. **Alert Finance Department**
+   - Notify all Finance staff to NOT process wire transfer
+   - Provide details on email sender spoofing
+   - Instructions to contact CEO through known phone number
+   - Status: RECOMMENDED (escalate to Communications/Finance leadership)
+
+2. **Block Attacker Infrastructure**
+   - Block domain: company-secure.tk (email filter, firewall, DNS)
+   - Block IPs: 203.0.113.45, 198.51.100.99 (firewall perimeter)
+   - Block malicious URL: hxxp://company-secure.tk/invoice/verify-payment
+   - Status: RECOMMENDED (escalate to Network Security, Email Security)
+
+3. **Isolate Malicious Email**
+   - Quarantine email from all inboxes
+   - Prevent further delivery
+   - Preserve for forensic analysis
+   - Status: RECOMMENDED (escalate to Email Security)
+
+#### SHORT-TERM (Within 1-2 Hours)
+4. **Identify User Interactions**
+   - Check Email Security Gateway logs for link clicks from recipients
+   - Check endpoint telemetry for malware execution
+   - Monitor for credential usage from Finance staff
+   - Status: RECOMMENDED (SOC investigation)
+
+5. **Check for Similar Campaigns**
+   - Hunt for other emails from company-secure.tk domain
+   - Hunt for other CEO impersonation emails
+   - Hunt for emails from suspicious-server.ru
+   - Search for similar wire transfer requests
+   - Status: RECOMMENDED (SOC investigation)
+
+6. **Credential Security Review**
+   - Force password reset for Finance department
+   - Enable multi-factor authentication (MFA) if not already enabled
+   - Monitor for unauthorized access to finance systems
+   - Status: RECOMMENDED (escalate to Identity & Access Management)
+
+#### FOLLOW-UP (Within 24 Hours)
+7. **Notify CEO**
+   - Inform CEO of identity spoofing
+   - Request communication to Finance staff confirming email is fraudulent
+   - Establish verification procedure for future requests
+   - Status: RECOMMENDED (escalate to Executive Communications)
+
+8. **Threat Intelligence Investigation**
+   - Research attacker domains/IPs for known threat groups
+   - Check threat feeds for company-secure.tk
+   - Determine if attack is targeted or mass campaign
+   - Status: RECOMMENDED (escalate to Threat Intelligence)
+
+9. **Mailbox Rules Update**
+   - Add rules to flag emails claiming to be from CEO with external sources
+   - Monitor for similar patterns
+   - Status: RECOMMENDED (escalate to Email Security)
+
+---
+
+## Email Header Analysis (Technical)
+
+### SPF (Sender Policy Framework) Explanation
+
+**Purpose:** SPF prevents email spoofing by checking if sender IP is authorized to send from claimed domain
+
+**What SPF Says:**
+```
+spf=fail (sender IP [203.0.113.45] does not match SPF policy for company.com)
+```
+
+**Translation:**
+- Email claims to be from: company.com
+- Actual sender IP is: 203.0.113.45
+- company.com's SPF record says: "Only email from [OUR AUTHORIZED SERVERS] are valid"
+- 203.0.113.45 is NOT in that list
+- **Verdict:** Email is spoofed
+
+---
+
+### DKIM (DomainKeys Identified Mail) Explanation
+
+**Purpose:** DKIM adds digital signature to email proving it came from legitimate domain
+
+**What DKIM Says:**
+```
+dkim=fail (signature verification failed)
+```
+
+**Translation:**
+- Email claims to be from: company.com
+- Email includes cryptographic signature
+- company.com's public key is used to verify signature
+- Signature verification FAILS
+- **Verdict:** Email was NOT signed by company.com's private key (attacker can't fake DKIM)
+
+---
+
+### DMARC (Domain-based Message Authentication Reporting and Conformance) Explanation
+
+**Purpose:** DMARC policy says "If SPF OR DKIM fails, reject the email"
+
+**What DMARC Says:**
+```
+dmarc=fail (DMARC policy requires alignment)
+```
+
+**Translation:**
+- SPF failed (✗)
+- DKIM failed (✗)
+- DMARC policy: Reject if BOTH fail
+- **Verdict:** Email should be REJECTED (not delivered or marked as suspicious)
+
+---
+
+## Investigation Methodology
+
+### Tools Used
+- **Email Security Gateway:** Header analysis, attachment scanning
+- **Domain Intelligence:** WHOIS lookup, DNS reputation
+- **IP Reputation:** Geolocation, threat intelligence feeds
+- **Email Header Parser:** Manual analysis of SMTP path
+
+### Analysis Performed
+
+**Header Analysis:**
+- Traced email path from origin to delivery
+- Verified authentication mechanisms (SPF, DKIM, DMARC)
+- Identified lookalike domain (company-secure.tk vs company.com)
+- Confirmed sender spoofing through multiple authentication failures
+
+**Social Engineering Analysis:**
+- Identified urgency tactics ("TODAY", "Do not delay")
+- Analyzed financial request ($50,000 wire)
+- Evaluated legitimacy of banking details
+- Assessed attacker knowledge of company structure
+
+**Payload Analysis (Not Opened):**
+- Identified malicious attachment (.exe executable)
+- Identified malicious URL (credential harvesting link)
+- Mapped attack objectives (money theft + malware delivery)
+
+### Evidence Chain
+1. Email headers confirm spoofing
+2. Authentication failures confirm email is not from CEO
+3. Domain intelligence shows typosquatting domain registered by attacker
+4. Payload analysis identifies malware/credential harvesting intent
+5. Financial request identifies fraud objective
+
+---
+
+## Detection Opportunities
+
+### What Worked
+- ✅ Email security gateway flagged authentication failures
+- ✅ User vigilance (employee questioned authenticity)
+- ✅ Finance staff familiar with legitimate CEO processes
+- ✅ No prior similar emails from CEO (anomaly detected)
+
+### Detection Gaps
+- ⚠️ Email gateway allowed delivery (some orgs would auto-quarantine failed auth)
+- ⚠️ No real-time phishing alert system (user had to manually report)
+- ⚠️ Typosquatting domain not in threat feed
+- ⚠️ No outbound link tracking (don't know if anyone clicked)
+
+### Recommendations for Future Prevention
+1. Configure email gateway to auto-quarantine emails with failed SPF/DKIM/DMARC
+2. Implement user phishing reporting button (easy escalation)
+3. Add CEO name to sensitive words list (monitor emails claiming to be from CEO)
+4. Implement outbound link click monitoring
+5. Establish verification procedure for high-value wire transfers (require phone call)
+6. Implement domain similarity detection (alert on lookalike domains)
+7. Train Finance staff on BEC tactics and verification procedures
+8. Enable Multi-Factor Authentication (MFA) for financial system access
+
+---
+
+## Investigation Metrics
+
+| Metric | Value |
+|---|---|
+| **Time to Detection** | ~3 minutes (user reported) |
+| **Time to Investigation Completion** | ~20 minutes |
+| **Employees at Risk** | 15 (Finance team) |
+| **Confirmed Wire Transfers** | 0 (no loss) |
+| **IOCs Extracted** | 5 (3 domains, 2 IPs) |
+| **Malicious Payloads** | 2 (executable + credential harvesting link) |
+| **Confirmed Spoofing** | YES (SPF, DKIM, DMARC all failed) |
+| **Business Impact** | Prevented $50,000 fraud |
+
+---
+
+## Appendix: Additional Investigation Data
+
+### Email Header (Raw Format)
+```
+[Complete email header with authentication results]
+[Received: headers showing full SMTP path]
+[SPF/DKIM/DMARC authentication results]
+```
+
+### Domain Intelligence
+```
+Domain: company-secure.tk
+Registrant: Anonymous
+Registration Date: 2024-06-15 (5 days before attack)
+Purpose: Typosquatting company.com
+Threat Intelligence: No prior reputation data (newly registered)
+```
+
+### IP Reputation
+```
+IP: 203.0.113.45
+Reverse DNS: mail.attacker.com
+Geolocation: [Attacker location - likely Eastern Europe/Russia]
+Prior abuse reports: Yes (known phishing IP)
+Threat intelligence: Associated with BEC campaigns
+```
+
+---
+
+## Investigation Conclusion
+
+This investigation confirms a **sophisticated BEC (Business Email Compromise) attack** involving:
+- Email spoofing (typosquatting domain)
+- CEO impersonation
+- High-value fraud attempt ($50,000)
+- Malware/credential harvesting payloads
+- Social engineering tactics
+
+**Result:** Attack was detected and prevented before financial loss occurred.
+
+**Recommendation:** 
+1. Implement recommended prevention measures
+2. Train Finance staff on BEC detection
+3. Monitor for similar campaigns
+4. Track attacker infrastructure for threat intelligence
+
+**Investigator Signature:** Vishwak Sudarsanan, SOC Analyst  
+**Date:** June 20, 2024  
+**Classification:** CONFIDENTIAL - Internal Use Only
